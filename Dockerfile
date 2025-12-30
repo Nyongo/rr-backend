@@ -32,7 +32,10 @@ COPY package.json ./
 COPY package-lock.json* ./
 RUN npm ci --omit=dev --legacy-peer-deps --ignore-scripts || npm install --omit=dev --legacy-peer-deps --ignore-scripts
 
-# Copy Prisma schema and generated client
+# Ensure Prisma CLI is installed (needed for migrations)
+RUN npm list prisma || npm install prisma@^6.2.1 --save --legacy-peer-deps --no-save
+
+# Copy Prisma schema and generated client from builder
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
