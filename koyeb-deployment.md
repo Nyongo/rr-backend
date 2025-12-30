@@ -92,6 +92,13 @@ The npm deprecation warnings (npmlog, google-p12-pem, etc.) are harmless and won
 
 Koyeb automatically sets the `PORT` environment variable. Your app should read from `process.env.PORT` (which it does in `main.ts`).
 
+**Important**: Configure the health check port in Koyeb:
+
+1. Go to your app settings in Koyeb dashboard
+2. Navigate to **Settings** → **Health Checks**
+3. Set **Health Check Port** to `3000` (or whatever PORT you're using)
+4. Ensure **Health Check Path** is set correctly (e.g., `/` or a health endpoint if you have one)
+
 ### Build Failures
 
 If the build fails:
@@ -135,4 +142,3 @@ The Dockerfile uses multi-stage builds to:
 - Prisma migrations run automatically via the `start:prod` script
 - SSL certificates are optional (Koyeb handles SSL)
 - The app listens on `0.0.0.0` to accept connections from Koyeb's load balancer
-

@@ -102,10 +102,20 @@ async function bootstrap() {
     }),
   );
 
+  // Health check endpoint for Koyeb (before listen)
+  const httpAdapter = app.getHttpAdapter();
+  httpAdapter.get('/health', (req: any, res: any) => {
+    res.status(200).json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   await app.listen(port, host);
   console.log(`\n🚀 Server is running on http://${host}:${port}`);
   console.log(`📝 Login endpoint: POST http://${host}:${port}/auth/login`);
   console.log(`📝 Test endpoint: GET http://${host}:${port}/auth/test`);
+  console.log(`💚 Health check: GET http://${host}:${port}/health`);
   console.log(
     `✅ Logging middleware registered - all requests will be logged\n`,
   );
