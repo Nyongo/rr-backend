@@ -4,9 +4,10 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 
 # Install dependencies separately to leverage Docker cache
-COPY package.json package-lock.json ./
+COPY package.json ./
+COPY package-lock.json* ./
 # Install dependencies (warnings are harmless, npm will continue even with deprecated packages)
-RUN npm ci --legacy-peer-deps --ignore-scripts
+RUN npm ci --legacy-peer-deps --ignore-scripts || npm install --legacy-peer-deps --ignore-scripts
 
 # Copy application files, including the Prisma schema
 COPY prisma ./prisma
@@ -27,8 +28,9 @@ FROM node:18-alpine AS runner
 WORKDIR /app
 
 # Install production dependencies
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --legacy-peer-deps --ignore-scripts
+COPY package.json ./
+COPY package-lock.json* ./
+RUN npm ci --omit=dev --legacy-peer-deps --ignore-scripts || npm install --omit=dev --legacy-peer-deps --ignore-scripts
 
 # Copy Prisma schema and generated client
 COPY --from=builder /app/prisma ./prisma
@@ -37,12 +39,8 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 # Copy built application
 COPY --from=builder /app/dist ./dist
 
-# Create necessary directories
-RUN mkdir -p /app/ssl /app/uploads
-
-# Copy SSL certificates if they exist (optional for Koyeb, they handle SSL)
-COPY ssl/server.key /app/ssl/server.key 2>/dev/null || true
-COPY ssl/server.cert /app/ssl/server.cert 2>/dev/null || true
+# Create necessary directories (SSL not needed - Koyeb handles SSL termination)
+RUN mkdir -p /app/uploads
 
 # Expose port (Koyeb will use PORT env var)
 EXPOSE 3000

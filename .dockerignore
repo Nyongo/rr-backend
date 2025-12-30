@@ -2,7 +2,8 @@
 node_modules
 npm-debug.log
 yarn.lock
-package-lock.json
+# Keep package-lock.json for reproducible builds
+# package-lock.json
 
 # Build outputs
 dist
