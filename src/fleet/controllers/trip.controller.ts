@@ -10,6 +10,7 @@ import {
   UsePipes,
   ValidationPipe,
   HttpCode,
+  Query,
 } from '@nestjs/common';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
@@ -17,6 +18,7 @@ import { PermissionsGuard } from 'src/auth/permission.guard';
 import { TripService } from '../services/trip.service';
 import { CreateTripDto } from '../dtos/create-trip.dto';
 import { EndTripDto } from '../dtos/end-trip.dto';
+import { UpdateTripLocationDto } from '../dtos/update-trip-location.dto';
 
 @Controller('fleet/trips')
 //@UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -85,5 +87,41 @@ export class TripController {
   //@Permissions('can_delete_trip')
   async delete(@Param('id') id: string) {
     return this.tripService.delete(Number(id));
+  }
+
+  @Post(':id/location')
+  @HttpCode(200)
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+  //@Permissions('can_update_trip')
+  async updateLocation(
+    @Param('id') id: string,
+    @Body() data: Omit<UpdateTripLocationDto, 'tripId'>,
+  ) {
+    return this.tripService.updateTripLocation({
+      ...data,
+      tripId: Number(id),
+    });
+  }
+
+  @Get(':id/location')
+  //@Permissions('can_view_trips')
+  async getCurrentLocation(@Param('id') id: string) {
+    return this.tripService.getCurrentTripLocation(Number(id));
+  }
+
+  @Get(':id/location/history')
+  //@Permissions('can_view_trips')
+  async getLocationHistory(
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Query('startTime') startTime?: string,
+    @Query('endTime') endTime?: string,
+  ) {
+    return this.tripService.getTripLocationHistory(
+      Number(id),
+      limit ? Number(limit) : 100,
+      startTime ? new Date(startTime) : undefined,
+      endTime ? new Date(endTime) : undefined,
+    );
   }
 }

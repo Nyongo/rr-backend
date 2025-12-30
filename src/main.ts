@@ -20,18 +20,32 @@ import { ValidationPipe } from '@nestjs/common';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
-  const httpsOptions = {
-    key: fs.readFileSync('ssl/server.key'),
-    cert: fs.readFileSync('ssl/server.cert'),
-  };
+  // Koyeb handles SSL termination, so we don't need HTTPS in the app
+  // Only use HTTPS options if SSL certs exist (for local development)
+  let httpsOptions;
+  try {
+    if (fs.existsSync('ssl/server.key') && fs.existsSync('ssl/server.cert')) {
+      httpsOptions = {
+        key: fs.readFileSync('ssl/server.key'),
+        cert: fs.readFileSync('ssl/server.cert'),
+      };
+    }
+  } catch (error) {
+    // SSL certs not available - Koyeb will handle SSL
+    console.log(
+      'SSL certificates not found, using HTTP (SSL handled by Koyeb)',
+    );
+  }
 
-  const host = process.env.HOST || '0.0.0.0'; // Listen on all interfaces to allow Android connections
+  const host = process.env.HOST || '0.0.0.0'; // Listen on all interfaces
   const port = process.env.PORT || 3000;
-  // const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-  //   httpsOptions,
-  // });
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: true, // Enable body parsing
+    // Only use HTTPS in local dev if certs exist
+    ...(httpsOptions && process.env.NODE_ENV !== 'production'
+      ? { httpsOptions }
+      : {}),
   });
 
   // Enable CORS

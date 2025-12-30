@@ -34,6 +34,8 @@ export class AuthController {
     console.log('loginDto type:', typeof loginDto);
     console.log('loginDto keys:', Object.keys(loginDto || {}));
     process.stdout.write('============================================\n\n');
+
+    // The email field may contain either an email address or a phone number
     const user = await this.authService.validateUser(
       loginDto.email,
       loginDto.password,

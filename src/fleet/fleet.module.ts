@@ -12,6 +12,7 @@ import { MaintenanceService } from './services/maintenance.service';
 import { TripController } from './controllers/trip.controller';
 import { TripService } from './services/trip.service';
 import { FileUploadService } from './services/file-upload.service';
+import { TripTrackingGateway } from './gateways/trip-tracking.gateway';
 
 @Module({
   imports: [PrismaModule],
@@ -30,6 +31,16 @@ import { FileUploadService } from './services/file-upload.service';
     MaintenanceService,
     TripService,
     FileUploadService,
+    TripTrackingGateway,
   ],
+  exports: [TripTrackingGateway],
 })
-export class FleetModule {}
+export class FleetModule {
+  constructor(
+    private readonly tripService: TripService,
+    private readonly tripTrackingGateway: TripTrackingGateway,
+  ) {
+    // Wire up the gateway to the service after initialization
+    this.tripService.setTrackingGateway(this.tripTrackingGateway);
+  }
+}

@@ -13,9 +13,18 @@ export class AuthService {
   ) {}
 
   // Validate user credentials and generate JWT
-  async validateUser(email: string, password: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+  // Accepts either email or phoneNumber as identifier
+  // Searches both email and phoneNumber fields since minders use phone number as email
+  async validateUser(emailOrPhone: string, password: string) {
+    // Find user by either email or phoneNumber
+    // This handles both regular users (email) and minders (phone number stored as email)
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: emailOrPhone },
+          { phoneNumber: emailOrPhone },
+        ],
+      },
       select: {
         id: true,
         email: true,
@@ -35,6 +44,7 @@ export class AuthService {
         customer: true,
       },
     });
+    
     if (!user) {
       return null; // No user found
     }

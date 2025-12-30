@@ -1,0 +1,49 @@
+# Dependencies
+node_modules
+npm-debug.log
+yarn.lock
+package-lock.json
+
+# Build outputs
+dist
+build
+coverage
+
+# Environment files (Koyeb will provide these)
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Documentation
+*.md
+!README.md
+
+# Tests
+test
+*.spec.ts
+*.test.ts
+jest.config.js
+
+# Misc
+.DS_Store
+*.log
+tmp
+temp
+uploads
+*.sql
+
+# Koyeb
+.koyeb
+

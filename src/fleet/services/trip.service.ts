@@ -2,12 +2,21 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateTripDto } from '../dtos/create-trip.dto';
 import { EndTripDto } from '../dtos/end-trip.dto';
+import { UpdateTripLocationDto } from '../dtos/update-trip-location.dto';
 
 @Injectable()
 export class TripService {
   private readonly logger = new Logger(TripService.name);
+  private trackingGateway: any; // Will be injected via setter to avoid circular dependency
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Set the tracking gateway (called from module to avoid circular dependency)
+   */
+  setTrackingGateway(gateway: any) {
+    this.trackingGateway = gateway;
+  }
 
   async create(data: CreateTripDto) {
     this.logger.log(
@@ -202,5 +211,97 @@ export class TripService {
       scheduledTrips,
       completionRate: totalTrips > 0 ? (completedTrips / totalTrips) * 100 : 0,
     };
+  }
+
+  /**
+   * Update trip location and broadcast to connected clients
+   */
+  async updateTripLocation(data: UpdateTripLocationDto) {
+    this.logger.log(`Updating location for trip ${data.tripId}`);
+
+    // Verify trip exists and is in progress
+    const trip = await this.findOne(data.tripId);
+    if (trip.status !== 'IN_PROGRESS') {
+      throw new Error(`Cannot update location. Trip status is: ${trip.status}`);
+    }
+
+    // Save location to database
+    const location = await this.prisma.tripLocation.create({
+      data: {
+        tripId: data.tripId,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        speed: data.speed,
+        heading: data.heading,
+        accuracy: data.accuracy,
+        timestamp: new Date(),
+      },
+    });
+
+    // Broadcast location update via WebSocket
+    if (this.trackingGateway) {
+      this.trackingGateway.broadcastLocationUpdate({
+        tripId: data.tripId,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        timestamp: location.timestamp,
+        speed: data.speed,
+        heading: data.heading,
+        accuracy: data.accuracy,
+      });
+    }
+
+    return location;
+  }
+
+  /**
+   * Get location history for a trip
+   */
+  async getTripLocationHistory(
+    tripId: number,
+    limit: number = 100,
+    startTime?: Date,
+    endTime?: Date,
+  ) {
+    this.logger.log(`Fetching location history for trip ${tripId}`);
+
+    // Verify trip exists
+    await this.findOne(tripId);
+
+    const where: any = { tripId };
+    if (startTime || endTime) {
+      where.timestamp = {};
+      if (startTime) {
+        where.timestamp.gte = startTime;
+      }
+      if (endTime) {
+        where.timestamp.lte = endTime;
+      }
+    }
+
+    const locations = await this.prisma.tripLocation.findMany({
+      where,
+      orderBy: { timestamp: 'asc' },
+      take: limit,
+    });
+
+    return locations;
+  }
+
+  /**
+   * Get current location of a trip (most recent)
+   */
+  async getCurrentTripLocation(tripId: number) {
+    this.logger.log(`Fetching current location for trip ${tripId}`);
+
+    // Verify trip exists
+    await this.findOne(tripId);
+
+    const location = await this.prisma.tripLocation.findFirst({
+      where: { tripId },
+      orderBy: { timestamp: 'desc' },
+    });
+
+    return location;
   }
 }

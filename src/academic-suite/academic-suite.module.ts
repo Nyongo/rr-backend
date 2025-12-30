@@ -22,6 +22,7 @@ import { RouteDbService } from './services/route-db.service';
 import { SchoolTripDbService } from './services/school-trip-db.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../common/services/mail.service';
+import { SchoolTripTrackingGateway } from './gateways/school-trip-tracking.gateway';
 
 @Module({
   imports: [CommonModule],
@@ -38,6 +39,7 @@ import { MailService } from '../common/services/mail.service';
     RouteDbService,
     SchoolTripDbService,
     MailService,
+    SchoolTripTrackingGateway,
   ],
   controllers: [
     CustomerController,
@@ -62,6 +64,17 @@ import { MailService } from '../common/services/mail.service';
     AddressDbService,
     RouteDbService,
     SchoolTripDbService,
+    SchoolTripTrackingGateway,
   ],
 })
-export class AcademicSuiteModule {}
+export class AcademicSuiteModule {
+  constructor(
+    private readonly schoolTripDbService: SchoolTripDbService,
+    private readonly schoolTripTrackingGateway: SchoolTripTrackingGateway,
+  ) {
+    // Wire up the gateway to the service after initialization
+    this.schoolTripDbService.setTrackingGateway(
+      this.schoolTripTrackingGateway,
+    );
+  }
+}

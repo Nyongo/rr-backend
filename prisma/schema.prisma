@@ -370,8 +370,24 @@ model SchoolTrip {
   lastUpdatedById    Int?
   tripStudents       SchoolTripStudent[]
   rfidEvents         SchoolTripRfidEvent[]
+  locations          SchoolTripLocation[]
 
   @@map("school_trips")
+}
+
+model SchoolTripLocation {
+  id        Int      @id @default(autoincrement())
+  tripId    String
+  latitude  Float
+  longitude Float
+  timestamp DateTime @default(now())
+  speed     Float?   // Speed in km/h (optional)
+  heading   Float?   // Direction in degrees (0-360, optional)
+  accuracy  Float?   // GPS accuracy in meters (optional)
+  trip      SchoolTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId, timestamp])
+  @@map("school_trip_locations")
 }
 
 model SchoolTripStudent {
@@ -526,6 +542,22 @@ model Trip {
   startGps        String
   driver          Driver        @relation(fields: [driverId], references: [id], onDelete: Cascade)
   vehicle         Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  locations       TripLocation[]
+}
+
+model TripLocation {
+  id        Int      @id @default(autoincrement())
+  tripId    Int
+  latitude  Float
+  longitude Float
+  timestamp DateTime @default(now())
+  speed     Float?   // Speed in km/h (optional)
+  heading   Float?   // Direction in degrees (0-360, optional)
+  accuracy  Float?   // GPS accuracy in meters (optional)
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId, timestamp])
+  @@map("trip_locations")
 }
 
 // ============================================

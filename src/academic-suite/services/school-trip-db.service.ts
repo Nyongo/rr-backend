@@ -10,13 +10,22 @@ import {
   LogRfidEventDto,
   RfidEventType,
 } from '../dto/create-school-trip.dto';
+import { UpdateSchoolTripLocationDto } from '../dtos/update-school-trip-location.dto';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class SchoolTripDbService {
   private readonly logger = new Logger(SchoolTripDbService.name);
+  private trackingGateway: any; // Will be injected via setter to avoid circular dependency
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Set the tracking gateway (called from module to avoid circular dependency)
+   */
+  setTrackingGateway(gateway: any) {
+    this.trackingGateway = gateway;
+  }
 
   async create(data: CreateSchoolTripDto) {
     const tripId = crypto.randomUUID();
@@ -1019,5 +1028,109 @@ export class SchoolTripDbService {
     });
 
     return results;
+  }
+
+  /**
+   * Update school trip location and broadcast to connected clients
+   */
+  async updateTripLocation(data: UpdateSchoolTripLocationDto) {
+    this.logger.log(`Updating location for school trip ${data.tripId}`);
+
+    // Verify trip exists and is in progress
+    const trip = await this.findById(data.tripId);
+    if (!trip) {
+      throw new Error(`School trip with ID ${data.tripId} not found`);
+    }
+    if (trip.status !== SchoolTripStatus.IN_PROGRESS) {
+      throw new Error(
+        `Cannot update location. School trip status is: ${trip.status}`,
+      );
+    }
+
+    // Save location to database
+    const location = await this.prisma.schoolTripLocation.create({
+      data: {
+        tripId: data.tripId,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        speed: data.speed,
+        heading: data.heading,
+        accuracy: data.accuracy,
+        timestamp: new Date(),
+      },
+    });
+
+    // Broadcast location update via WebSocket
+    if (this.trackingGateway) {
+      try {
+        this.trackingGateway.broadcastLocationUpdate({
+          tripId: data.tripId,
+          latitude: data.latitude,
+          longitude: data.longitude,
+          timestamp: location.timestamp,
+          speed: data.speed,
+          heading: data.heading,
+          accuracy: data.accuracy,
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Failed to broadcast location update via WebSocket: ${error}`,
+        );
+        // Continue even if broadcast fails - location is already saved
+      }
+    }
+
+    return location;
+  }
+
+  /**
+   * Get location history for a school trip
+   */
+  async getTripLocationHistory(
+    tripId: string,
+    limit: number = 100,
+    startTime?: Date,
+    endTime?: Date,
+  ) {
+    this.logger.log(`Fetching location history for school trip ${tripId}`);
+
+    // Verify trip exists
+    await this.findById(tripId);
+
+    const where: any = { tripId };
+    if (startTime || endTime) {
+      where.timestamp = {};
+      if (startTime) {
+        where.timestamp.gte = startTime;
+      }
+      if (endTime) {
+        where.timestamp.lte = endTime;
+      }
+    }
+
+    const locations = await this.prisma.schoolTripLocation.findMany({
+      where,
+      orderBy: { timestamp: 'asc' },
+      take: limit,
+    });
+
+    return locations;
+  }
+
+  /**
+   * Get current location of a school trip (most recent)
+   */
+  async getCurrentTripLocation(tripId: string) {
+    this.logger.log(`Fetching current location for school trip ${tripId}`);
+
+    // Verify trip exists
+    await this.findById(tripId);
+
+    const location = await this.prisma.schoolTripLocation.findFirst({
+      where: { tripId },
+      orderBy: { timestamp: 'desc' },
+    });
+
+    return location;
   }
 }

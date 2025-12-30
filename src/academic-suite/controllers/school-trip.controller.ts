@@ -19,6 +19,7 @@ import {
   LogRfidEventDto,
   RfidEventType,
 } from '../dto/create-school-trip.dto';
+import { UpdateSchoolTripLocationDto } from '../dtos/update-school-trip-location.dto';
 import { SchoolTripDbService } from '../services/school-trip-db.service';
 
 @Controller('academic-suite/trips')
@@ -442,6 +443,83 @@ export class SchoolTripController {
           error instanceof Error
             ? error.message
             : 'Failed to fetch trip RFID events',
+      };
+    }
+  }
+
+  @Post(':id/location')
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  )
+  async updateLocation(
+    @Param('id') id: string,
+    @Body() data: Omit<UpdateSchoolTripLocationDto, 'tripId'>,
+  ) {
+    try {
+      const location = await this.tripDb.updateTripLocation({
+        ...data,
+        tripId: id,
+      });
+      return { success: true, data: location };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to update trip location',
+      };
+    }
+  }
+
+  @Get(':id/location')
+  async getCurrentLocation(@Param('id') id: string) {
+    try {
+      const location = await this.tripDb.getCurrentTripLocation(id);
+      if (!location) {
+        return {
+          success: false,
+          message: 'No location data found for this trip',
+        };
+      }
+      return { success: true, data: location };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to fetch trip location',
+      };
+    }
+  }
+
+  @Get(':id/location/history')
+  async getLocationHistory(
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Query('startTime') startTime?: string,
+    @Query('endTime') endTime?: string,
+  ) {
+    try {
+      const locations = await this.tripDb.getTripLocationHistory(
+        id,
+        limit ? Number(limit) : 100,
+        startTime ? new Date(startTime) : undefined,
+        endTime ? new Date(endTime) : undefined,
+      );
+      return { success: true, data: locations };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to fetch trip location history',
       };
     }
   }

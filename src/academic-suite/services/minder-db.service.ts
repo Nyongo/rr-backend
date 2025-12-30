@@ -2,10 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateMinderDto, UpdateMinderDto } from '../dto/create-minder.dto';
 import { v4 as uuidv4 } from 'uuid';
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class MinderDbService {
   private readonly logger = new Logger(MinderDbService.name);
+  private readonly DEFAULT_PASSWORD = '1234';
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -15,32 +17,76 @@ export class MinderDbService {
     // Generate a 4-digit PIN if not provided
     const pin = data.pin || this.generatePin();
 
-    const minder = await this.prisma.schoolMinder.create({
-      data: {
-        id: uuidv4(),
-        name: data.name,
-        phoneNumber: data.phoneNumber,
-        schoolId: data.schoolId,
-        photo: data.photo,
-        pin: pin,
-        status: data.status || 'Active',
-        isActive: data.isActive !== undefined ? data.isActive : true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      include: {
-        school: {
-          select: {
-            id: true,
-            name: true,
-            customerId: true,
-          },
-        },
-      },
+    // Find the "Minder" role
+    const minderRole = await this.prisma.role.findUnique({
+      where: { name: 'Minder' },
     });
 
-    this.logger.log(`Minder created successfully with ID: ${minder.id}`);
-    return minder;
+    if (!minderRole) {
+      throw new Error('Minder role not found in the system. Please create the role first.');
+    }
+
+    // Hash the default password
+    const hashedPassword = await bcrypt.hash(this.DEFAULT_PASSWORD, 10);
+
+    // Check if user with this phone number (as email) already exists
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: data.phoneNumber },
+    });
+
+    if (existingUser) {
+      throw new Error(`A user with phone number ${data.phoneNumber} already exists.`);
+    }
+
+    // Create minder and user in a transaction
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Create user account first
+      const user = await tx.user.create({
+        data: {
+          email: data.phoneNumber, // Use phone number as email
+          name: data.name,
+          phoneNumber: data.phoneNumber,
+          password: hashedPassword,
+          roleId: minderRole.id,
+          isActive: true,
+          requirePasswordReset: false,
+          createdAt: new Date(),
+          lastPasswordChangedOn: new Date(),
+        },
+      });
+
+      this.logger.log(`User created successfully with ID: ${user.id} for minder`);
+
+      // Create minder
+      const minder = await tx.schoolMinder.create({
+        data: {
+          id: uuidv4(),
+          name: data.name,
+          phoneNumber: data.phoneNumber,
+          schoolId: data.schoolId,
+          photo: data.photo,
+          pin: pin,
+          status: data.status || 'Active',
+          isActive: data.isActive !== undefined ? data.isActive : true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        include: {
+          school: {
+            select: {
+              id: true,
+              name: true,
+              customerId: true,
+            },
+          },
+        },
+      });
+
+      this.logger.log(`Minder created successfully with ID: ${minder.id}`);
+      return minder;
+    });
+
+    return result;
   }
 
   async findAll(page: number = 1, pageSize: number = 10, schoolId?: string) {
