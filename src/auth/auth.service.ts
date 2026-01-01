@@ -20,10 +20,7 @@ export class AuthService {
     // This handles both regular users (email) and minders (phone number stored as email)
     const user = await this.prisma.user.findFirst({
       where: {
-        OR: [
-          { email: emailOrPhone },
-          { phoneNumber: emailOrPhone },
-        ],
+        OR: [{ email: emailOrPhone }, { phoneNumber: emailOrPhone }],
       },
       select: {
         id: true,
@@ -44,7 +41,7 @@ export class AuthService {
         customer: true,
       },
     });
-    
+
     if (!user) {
       return null; // No user found
     }
@@ -56,6 +53,36 @@ export class AuthService {
       return null; // Password doesn't match
     }
 
+    // Find associated minder and driver by phoneNumber (since phoneNumber is stored as email for minders/drivers)
+    const [minder, driver] = await Promise.all([
+      user.phoneNumber
+        ? this.prisma.schoolMinder.findFirst({
+            where: { phoneNumber: user.phoneNumber },
+            select: {
+              id: true,
+              name: true,
+              phoneNumber: true,
+              pin: true,
+              status: true,
+              isActive: true,
+            },
+          })
+        : null,
+      user.phoneNumber
+        ? this.prisma.schoolDriver.findFirst({
+            where: { phoneNumber: user.phoneNumber },
+            select: {
+              id: true,
+              name: true,
+              phoneNumber: true,
+              pin: true,
+              status: true,
+              isActive: true,
+            },
+          })
+        : null,
+    ]);
+
     // If credentials are valid, return user (exclude password)
     return {
       id: user.id,
@@ -64,7 +91,9 @@ export class AuthService {
       role: user.role,
       phoneNumber: user.phoneNumber,
       customer: user.customer,
-    }; // Access the role name
+      minder: minder,
+      driver: driver,
+    };
   }
 
   // Generate JWT token
