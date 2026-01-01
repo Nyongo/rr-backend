@@ -84,6 +84,46 @@ export class SchoolTripController {
     }
   }
 
+  @Get('minder/:minderId')
+  async getByMinder(
+    @Param('minderId') minderId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('status') status?: string,
+    @Query('tripDate') tripDate?: string,
+  ) {
+    try {
+      const p = Number(page) || 1;
+      const ps = Number(pageSize) || 10;
+      const validStatus =
+        status &&
+        Object.values(SchoolTripStatus).includes(status as SchoolTripStatus)
+          ? (status as SchoolTripStatus)
+          : undefined;
+
+      const result = await this.tripDb.findByMinder(
+        minderId,
+        p,
+        ps,
+        validStatus,
+        tripDate,
+      );
+      return {
+        success: true,
+        data: result.data,
+        pagination: result.pagination,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to fetch trips for minder',
+      };
+    }
+  }
+
   @Get(':id')
   async getById(@Param('id') id: string) {
     try {

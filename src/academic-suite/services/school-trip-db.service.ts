@@ -308,6 +308,99 @@ export class SchoolTripDbService {
     });
   }
 
+  async findByMinder(
+    minderId: string,
+    page: number = 1,
+    pageSize: number = 10,
+    status?: SchoolTripStatus,
+    tripDate?: string,
+  ) {
+    this.logger.log(`Finding trips for minder ${minderId}`);
+    
+    const skip = (page - 1) * pageSize;
+    const where: any = {
+      minderId: minderId,
+    };
+    
+    if (status) where.status = status;
+    if (tripDate) {
+      const date = new Date(tripDate);
+      const startOfDay = new Date(date.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(date.setHours(23, 59, 59, 999));
+      where.tripDate = {
+        gte: startOfDay,
+        lte: endOfDay,
+      };
+    }
+
+    const [data, totalItems] = await Promise.all([
+      this.prisma.schoolTrip.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { tripDate: 'desc' },
+        include: {
+          route: {
+            select: {
+              id: true,
+              name: true,
+              tripType: true,
+            },
+          },
+          bus: {
+            select: {
+              id: true,
+              registrationNumber: true,
+              make: true,
+              model: true,
+            },
+          },
+          driver: {
+            select: {
+              id: true,
+              name: true,
+              phoneNumber: true,
+              pin: true,
+            },
+          },
+          minder: {
+            select: {
+              id: true,
+              name: true,
+              phoneNumber: true,
+              pin: true,
+            },
+          },
+          tripStudents: {
+            select: {
+              id: true,
+              student: {
+                select: {
+                  id: true,
+                  name: true,
+                  admissionNumber: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.schoolTrip.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(totalItems / pageSize);
+
+    return {
+      data,
+      pagination: {
+        page,
+        pageSize,
+        totalItems,
+        totalPages,
+      },
+    };
+  }
+
   async findAll(
     page: number = 1,
     pageSize: number = 10,
