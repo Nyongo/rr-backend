@@ -35,12 +35,13 @@ export class StudentDbService {
     return student;
   }
 
-  async findAll(page = 1, pageSize = 10, schoolId?: string, parentId?: string) {
-    this.logger.debug(`Listing students page=${page} size=${pageSize} schoolId=${schoolId} parentId=${parentId}`);
+  async findAll(page = 1, pageSize = 10, schoolId?: string, parentId?: string, rfidTagId?: string) {
+    this.logger.debug(`Listing students page=${page} size=${pageSize} schoolId=${schoolId} parentId=${parentId} rfidTagId=${rfidTagId}`);
     const skip = (page - 1) * pageSize;
     const where: any = {};
     if (schoolId) where.schoolId = schoolId;
     if (parentId) where.parentId = parentId;
+    if (rfidTagId) where.rfidTagId = rfidTagId;
 
     const [students, totalItems] = await Promise.all([
       this.prisma.student.findMany({

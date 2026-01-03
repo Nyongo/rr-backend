@@ -61,6 +61,7 @@ export class StudentController {
     @Query('pageSize') pageSize?: string,
     @Query('schoolId') schoolId?: string,
     @Query('parentId') parentId?: string,
+    @Query('rfidTagId') rfidTagId?: string,
   ) {
     try {
       const result = await this.studentDb.findAll(
@@ -68,6 +69,7 @@ export class StudentController {
         Number(pageSize) || 10,
         schoolId,
         parentId,
+        rfidTagId,
       );
       return {
         success: true,
