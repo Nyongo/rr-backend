@@ -18,7 +18,7 @@ export class RouteDbService {
 
   async create(data: CreateRouteDto) {
     const routeId = crypto.randomUUID();
-    
+
     // Prepare route data
     const routeData: any = {
       id: routeId,
@@ -34,12 +34,20 @@ export class RouteDbService {
     };
 
     // Handle students if provided
-    const studentsToAdd = data.studentsWithRiderType || 
-      (data.students ? data.students.map(id => ({ studentId: id, riderType: RiderType.DAILY })) : []);
-    
+    const studentsToAdd =
+      data.studentsWithRiderType ||
+      (data.students
+        ? data.students.map((id) => ({
+            studentId: id,
+            riderType: RiderType.DAILY,
+          }))
+        : []);
+
     // Log for debugging
     if (studentsToAdd.length > 0) {
-      this.logger.debug(`Processing ${studentsToAdd.length} students for route creation`);
+      this.logger.debug(
+        `Processing ${studentsToAdd.length} students for route creation`,
+      );
       this.logger.debug(`Students data: ${JSON.stringify(studentsToAdd)}`);
     }
 
@@ -88,12 +96,13 @@ export class RouteDbService {
         const routeStudentData = studentsToAdd
           .map((student) => {
             // Handle both object format (BulkStudentDto) and string format
-            const studentId = typeof student === 'string' 
-              ? student 
-              : student?.studentId;
-            
+            const studentId =
+              typeof student === 'string' ? student : student?.studentId;
+
             if (!studentId) {
-              this.logger.warn(`Invalid student entry: ${JSON.stringify(student)}`);
+              this.logger.warn(
+                `Invalid student entry: ${JSON.stringify(student)}`,
+              );
               return null;
             }
 
@@ -101,7 +110,9 @@ export class RouteDbService {
               id: crypto.randomUUID(),
               routeId: createdRoute.id,
               studentId: studentId,
-              riderType: (typeof student === 'object' && student?.riderType) || RiderType.DAILY,
+              riderType:
+                (typeof student === 'object' && student?.riderType) ||
+                RiderType.DAILY,
             };
           })
           .filter((item) => item !== null);
@@ -217,6 +228,16 @@ export class RouteDbService {
                   id: true,
                   name: true,
                   admissionNumber: true,
+                  rfidTagId: true,
+                  gender: true,
+                  parent: {
+                    select: {
+                      id: true,
+                      name: true,
+                      phoneNumber: true,
+                      addresses: true,
+                    },
+                  },
                 },
               },
             },
@@ -280,11 +301,13 @@ export class RouteDbService {
                 name: true,
                 admissionNumber: true,
                 gender: true,
+                rfidTagId: true,
                 parent: {
                   select: {
                     id: true,
                     name: true,
                     phoneNumber: true,
+                    addresses: true,
                   },
                 },
               },
@@ -346,23 +369,27 @@ export class RouteDbService {
     if (data.name !== undefined) updateData.name = data.name;
     if (data.schoolId !== undefined) updateData.schoolId = data.schoolId;
     if (data.tripType !== undefined) updateData.tripType = data.tripType;
-    if (data.description !== undefined) updateData.description = data.description;
+    if (data.description !== undefined)
+      updateData.description = data.description;
     if (data.status !== undefined) updateData.status = data.status;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
-    
+
     // Handle busId - null or empty string removes the bus
     if (data.busId !== undefined) {
-      updateData.busId = data.busId === '' || data.busId === null ? null : data.busId;
+      updateData.busId =
+        data.busId === '' || data.busId === null ? null : data.busId;
     }
 
     // Handle driverId - null or empty string removes the driver
     if (data.driverId !== undefined) {
-      updateData.driverId = data.driverId === '' || data.driverId === null ? null : data.driverId;
+      updateData.driverId =
+        data.driverId === '' || data.driverId === null ? null : data.driverId;
     }
 
     // Handle minderId - null or empty string removes the minder
     if (data.minderId !== undefined) {
-      updateData.minderId = data.minderId === '' || data.minderId === null ? null : data.minderId;
+      updateData.minderId =
+        data.minderId === '' || data.minderId === null ? null : data.minderId;
     }
 
     // Update route and handle students in a transaction
@@ -419,8 +446,14 @@ export class RouteDbService {
       }
 
       // Add students if provided
-      const studentsToAdd = data.studentsWithRiderType || 
-        (data.students ? data.students.map(studentId => ({ studentId, riderType: RiderType.DAILY })) : []);
+      const studentsToAdd =
+        data.studentsWithRiderType ||
+        (data.students
+          ? data.students.map((studentId) => ({
+              studentId,
+              riderType: RiderType.DAILY,
+            }))
+          : []);
 
       if (studentsToAdd.length > 0) {
         // Check for existing assignments
