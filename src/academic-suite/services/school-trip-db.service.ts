@@ -229,6 +229,7 @@ export class SchoolTripDbService {
                   name: true,
                   admissionNumber: true,
                   gender: true,
+                  rfidTagId: true,
                 },
               },
             },
@@ -300,6 +301,7 @@ export class SchoolTripDbService {
                 id: true,
                 name: true,
                 admissionNumber: true,
+                rfidTagId: true,
               },
             },
           },
@@ -379,6 +381,7 @@ export class SchoolTripDbService {
                   id: true,
                   name: true,
                   admissionNumber: true,
+                  rfidTagId: true,
                 },
               },
             },
@@ -467,6 +470,7 @@ export class SchoolTripDbService {
                   id: true,
                   name: true,
                   admissionNumber: true,
+                  rfidTagId: true,
                 },
               },
             },
@@ -536,6 +540,7 @@ export class SchoolTripDbService {
                 name: true,
                 admissionNumber: true,
                 gender: true,
+                rfidTagId: true,
                 parent: {
                   select: {
                     id: true,
@@ -663,6 +668,7 @@ export class SchoolTripDbService {
                 id: true,
                 name: true,
                 admissionNumber: true,
+                rfidTagId: true,
               },
             },
           },
@@ -732,6 +738,7 @@ export class SchoolTripDbService {
             name: true,
             admissionNumber: true,
             gender: true,
+            rfidTagId: true,
           },
         },
       },
@@ -795,6 +802,7 @@ export class SchoolTripDbService {
             name: true,
             admissionNumber: true,
             gender: true,
+            rfidTagId: true,
             parent: {
               select: {
                 id: true,
@@ -906,6 +914,7 @@ export class SchoolTripDbService {
             id: true,
             name: true,
             admissionNumber: true,
+            rfidTagId: true,
           },
         },
         tripStudent: {
@@ -946,6 +955,7 @@ export class SchoolTripDbService {
             id: true,
             name: true,
             admissionNumber: true,
+            rfidTagId: true,
           },
         },
         trip: {
