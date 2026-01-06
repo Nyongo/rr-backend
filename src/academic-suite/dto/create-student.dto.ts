@@ -159,3 +159,14 @@ export class UpdateStudentDto {
   @IsString()
   parentId?: string;
 }
+
+export class UpdateRfidTagDto {
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === '' || value === null) return null;
+    return value;
+  })
+  @IsString()
+  @MaxLength(100)
+  rfidTagId?: string | null;
+}

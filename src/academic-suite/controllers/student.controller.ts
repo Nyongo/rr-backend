@@ -14,7 +14,7 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { CreateStudentDto, UpdateStudentDto } from '../dto/create-student.dto';
+import { CreateStudentDto, UpdateStudentDto, UpdateRfidTagDto } from '../dto/create-student.dto';
 import { StudentDbService } from '../services/student-db.service';
 import { FileUploadService } from '../../common/services/file-upload.service';
 
@@ -99,6 +99,33 @@ export class StudentController {
     }
   }
 
+  @Get('search')
+  async search(
+    @Query('query') query?: string,
+    @Query('schoolId') schoolId?: string,
+  ) {
+    try {
+      if (!query || query.trim().length === 0) {
+        return {
+          success: false,
+          error: 'Query parameter is required',
+        };
+      }
+      const students = await this.studentDb.search(query.trim(), schoolId);
+      return {
+        success: true,
+        data: students,
+        count: students.length,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : 'Failed to search students',
+      };
+    }
+  }
+
   @Get(':id')
   async getById(@Param('id') id: string) {
     try {
@@ -153,6 +180,30 @@ export class StudentController {
         success: false,
         error:
           error instanceof Error ? error.message : 'Failed to update photo',
+      };
+    }
+  }
+
+  @Put(':id/rfid-tag')
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+  async updateRfidTag(
+    @Param('id') id: string,
+    @Body() dto: UpdateRfidTagDto,
+  ) {
+    try {
+      const existing = await this.studentDb.findById(id);
+      if (!existing) return { success: false, error: 'Student not found' };
+      const updated = await this.studentDb.update(id, {
+        rfidTagId: dto.rfidTagId,
+      });
+      return { success: true, data: updated };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to update RFID tag',
       };
     }
   }

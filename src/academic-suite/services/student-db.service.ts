@@ -35,8 +35,16 @@ export class StudentDbService {
     return student;
   }
 
-  async findAll(page = 1, pageSize = 10, schoolId?: string, parentId?: string, rfidTagId?: string) {
-    this.logger.debug(`Listing students page=${page} size=${pageSize} schoolId=${schoolId} parentId=${parentId} rfidTagId=${rfidTagId}`);
+  async findAll(
+    page = 1,
+    pageSize = 10,
+    schoolId?: string,
+    parentId?: string,
+    rfidTagId?: string,
+  ) {
+    this.logger.debug(
+      `Listing students page=${page} size=${pageSize} schoolId=${schoolId} parentId=${parentId} rfidTagId=${rfidTagId}`,
+    );
     const skip = (page - 1) * pageSize;
     const where: any = {};
     if (schoolId) where.schoolId = schoolId;
@@ -58,7 +66,10 @@ export class StudentDbService {
     ]);
 
     const totalPages = Math.ceil(totalItems / pageSize);
-    return { data: students, pagination: { page, pageSize, totalItems, totalPages } };
+    return {
+      data: students,
+      pagination: { page, pageSize, totalItems, totalPages },
+    };
   }
 
   async findById(id: string) {
@@ -73,17 +84,24 @@ export class StudentDbService {
 
   async update(id: string, data: UpdateStudentDto) {
     const updateData: any = {};
-    
+
     // Only include fields that are provided (not undefined)
     if (data.name !== undefined) updateData.name = data.name;
-    if (data.admissionNumber !== undefined) updateData.admissionNumber = data.admissionNumber;
-    if (data.dateOfBirth !== undefined) updateData.dateOfBirth = data.dateOfBirth;
+    if (data.admissionNumber !== undefined)
+      updateData.admissionNumber = data.admissionNumber;
+    if (data.dateOfBirth !== undefined)
+      updateData.dateOfBirth = data.dateOfBirth;
     if (data.gender !== undefined) updateData.gender = data.gender;
     if (data.status !== undefined) updateData.status = data.status;
-    if (data.specialNeeds !== undefined) updateData.specialNeeds = data.specialNeeds;
-    if (data.medicalInfo !== undefined) updateData.medicalInfo = data.medicalInfo;
+    if (data.specialNeeds !== undefined)
+      updateData.specialNeeds = data.specialNeeds;
+    if (data.medicalInfo !== undefined)
+      updateData.medicalInfo = data.medicalInfo;
     if (data.rfidTagId !== undefined) {
-      updateData.rfidTagId = data.rfidTagId === '' || data.rfidTagId === null ? null : data.rfidTagId;
+      updateData.rfidTagId =
+        data.rfidTagId === '' || data.rfidTagId === null
+          ? null
+          : data.rfidTagId;
     }
     if (data.photo !== undefined) updateData.photo = data.photo;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
@@ -125,5 +143,44 @@ export class StudentDbService {
         parent: { select: { id: true, name: true, parentType: true } },
       },
     });
+  }
+
+  async search(query: string, schoolId?: string) {
+    this.logger.debug(
+      `Searching students with query: ${query}${schoolId ? ` for school: ${schoolId}` : ''}`,
+    );
+
+    const where: any = {
+      OR: [
+        {
+          name: {
+            contains: query,
+            mode: 'insensitive',
+          },
+        },
+        {
+          admissionNumber: {
+            contains: query,
+            mode: 'insensitive',
+          },
+        },
+      ],
+    };
+
+    if (schoolId) {
+      where.schoolId = schoolId;
+    }
+
+    const students = await this.prisma.student.findMany({
+      where,
+      take: 50, // Limit results to prevent large responses
+      orderBy: { name: 'asc' },
+      include: {
+        school: { select: { id: true, name: true } },
+        parent: { select: { id: true, name: true, parentType: true } },
+      },
+    });
+
+    return students;
   }
 }
