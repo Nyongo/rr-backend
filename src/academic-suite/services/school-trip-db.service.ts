@@ -889,11 +889,25 @@ export class SchoolTripDbService {
       let shouldNotify = false;
 
       if (data.eventType === RfidEventType.ENTERED_BUS) {
+        this.logger.log(
+          `ENTERED_BUS event for student ${studentId} on trip ${tripId}`,
+        );
+        this.logger.debug(
+          `Current tripStudent state: actualPickupTime=${tripStudent.actualPickupTime}, trackingToken=${tripStudent.trackingToken ? 'exists' : 'null'}, pickupStatus=${tripStudent.pickupStatus}`,
+        );
+
         // Student entered bus - update pickup status
         updateData.pickupStatus = PickupDropoffStatus.PICKED_UP;
         if (!tripStudent.actualPickupTime) {
           updateData.actualPickupTime = scannedAt;
           shouldNotify = true; // Only notify on first pickup
+          this.logger.log(
+            `First pickup detected for student ${studentId} - will send notification`,
+          );
+        } else {
+          this.logger.debug(
+            `Student ${studentId} already has pickup time - notification skipped`,
+          );
         }
         if (data.gpsCoordinates && !tripStudent.pickupGps) {
           updateData.pickupGps = data.gpsCoordinates;
@@ -904,7 +918,13 @@ export class SchoolTripDbService {
 
         // Generate tracking token if not exists
         if (!tripStudent.trackingToken) {
-          updateData.trackingToken = this.generateTrackingToken();
+          const newToken = this.generateTrackingToken();
+          updateData.trackingToken = newToken;
+          this.logger.log(
+            `Generated new tracking token for student ${studentId}: ${newToken.substring(0, 8)}...`,
+          );
+        } else {
+          this.logger.debug(`Student ${studentId} already has tracking token`);
         }
       } else if (data.eventType === RfidEventType.EXITED_BUS) {
         // Student exited bus - update dropoff status
@@ -922,19 +942,47 @@ export class SchoolTripDbService {
 
       // Update trip student if status changed
       let updatedTripStudent = null;
+      let generatedTrackingToken = null;
+
       if (Object.keys(updateData).length > 0) {
         updatedTripStudent = await tx.schoolTripStudent.update({
           where: { id: tripStudent.id },
           data: updateData,
+          select: {
+            id: true,
+            trackingToken: true,
+            pickupStatus: true,
+            dropoffStatus: true,
+            actualPickupTime: true,
+          },
         });
+
+        // Store the generated token if it was just created
+        if (updateData.trackingToken) {
+          generatedTrackingToken = updateData.trackingToken;
+        } else if (updatedTripStudent.trackingToken) {
+          generatedTrackingToken = updatedTripStudent.trackingToken;
+        }
       }
 
-      return { rfidEvent, updatedTripStudent, shouldNotify };
+      return {
+        rfidEvent,
+        updatedTripStudent,
+        shouldNotify,
+        generatedTrackingToken,
+      };
     });
 
     // Send notification if student was just picked up (first time)
     // Do this outside the transaction to avoid blocking and transaction issues
-    if (result.shouldNotify && result.updatedTripStudent?.trackingToken) {
+    const trackingToken =
+      result.generatedTrackingToken || result.updatedTripStudent?.trackingToken;
+
+    if (result.shouldNotify && trackingToken) {
+      this.logger.log(
+        `Student ${studentId} was picked up. Sending notification with tracking token: ${trackingToken.substring(0, 8)}...`,
+      );
+
       // Fetch student with parent details for notification
       const studentWithParent = await this.prisma.student.findUnique({
         where: { id: studentId },
@@ -951,9 +999,12 @@ export class SchoolTripDbService {
       });
 
       if (studentWithParent && studentWithParent.parent) {
+        this.logger.log(
+          `Parent found for student ${studentWithParent.name}: ${studentWithParent.parent.name} (Phone: ${studentWithParent.parent.phoneNumber || 'N/A'}, Email: ${studentWithParent.parent.email || 'N/A'})`,
+        );
         // Send notification asynchronously (don't await to avoid blocking)
         this.sendPickupNotification(
-          result.updatedTripStudent.trackingToken,
+          trackingToken,
           studentWithParent,
           tripId,
         ).catch((error) => {
@@ -962,6 +1013,20 @@ export class SchoolTripDbService {
             error,
           );
         });
+      } else {
+        this.logger.warn(
+          `Student ${studentId} picked up but no parent information found. Student: ${!!studentWithParent}, Parent: ${studentWithParent?.parent ? 'exists' : 'null'}. Cannot send notification.`,
+        );
+      }
+    } else {
+      if (!result.shouldNotify) {
+        this.logger.debug(
+          `Student ${studentId} pickup notification skipped - not first pickup`,
+        );
+      } else if (!trackingToken) {
+        this.logger.warn(
+          `Student ${studentId} was picked up but no tracking token was generated or found.`,
+        );
       }
     }
 
@@ -1509,16 +1574,20 @@ export class SchoolTripDbService {
     student: any,
     tripId: string,
   ): Promise<void> {
+    this.logger.log(
+      `Attempting to send pickup notification for student ${student.name} (ID: ${student.id})`,
+    );
+
     if (!this.smsService || !this.mailService || !this.configService) {
-      this.logger.warn(
-        'SMS/Mail services not initialized, skipping notification',
+      this.logger.error(
+        `SMS/Mail services not initialized! SMS: ${!!this.smsService}, Mail: ${!!this.mailService}, Config: ${!!this.configService}`,
       );
       return;
     }
 
     const baseUrl =
-      this.configService.get<string>('APP_URL') || 'http://localhost:8080';
-    const trackingUrl = `${baseUrl}/track/${trackingToken}`;
+      this.configService.get<string>('APP_URL') || 'http://localhost:3000';
+    const trackingUrl = `${baseUrl}/academic-suite/track/${trackingToken}`;
 
     const studentName = student.name;
     const parentName = student.parent.name;
@@ -1542,18 +1611,22 @@ export class SchoolTripDbService {
     `;
 
     // Send SMS if phone number is available
-    // if (parentPhone) {
-    //   try {
-    //     await this.smsService.sendSms(parentPhone, smsMessage);
-    //     this.logger.log(
-    //       `SMS notification sent to ${parentPhone} for student ${studentName}`,
-    //     );
-    //   } catch (error) {
-    //     this.logger.error(
-    //       `Failed to send SMS to ${parentPhone}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-    //     );
-    //   }
-    // }
+    if (parentPhone) {
+      try {
+        await this.smsService.sendSms(parentPhone, smsMessage);
+        this.logger.log(
+          `SMS notification sent to ${parentPhone} for student ${studentName}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to send SMS to ${parentPhone}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      }
+    } else {
+      this.logger.warn(
+        `No phone number available for parent of student ${studentName}. SMS not sent.`,
+      );
+    }
 
     // Send Email if email is available
     if (parentEmail) {
@@ -1571,6 +1644,10 @@ export class SchoolTripDbService {
           `Failed to send email to ${parentEmail}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
       }
+    } else {
+      this.logger.warn(
+        `No email address available for parent of student ${studentName}. Email not sent.`,
+      );
     }
   }
 }
