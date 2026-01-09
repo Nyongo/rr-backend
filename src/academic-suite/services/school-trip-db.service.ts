@@ -1280,7 +1280,7 @@ export class SchoolTripDbService {
     // Broadcast location update via WebSocket
     if (this.trackingGateway) {
       try {
-        this.trackingGateway.broadcastLocationUpdate({
+        const locationPayload = {
           tripId: data.tripId,
           latitude: data.latitude,
           longitude: data.longitude,
@@ -1288,7 +1288,38 @@ export class SchoolTripDbService {
           speed: data.speed,
           heading: data.heading,
           accuracy: data.accuracy,
-        });
+        };
+
+        // Broadcast to trip subscribers (existing functionality)
+        this.trackingGateway.broadcastLocationUpdate(locationPayload);
+
+        // Also broadcast to student tracking subscribers
+        // Find all students on this trip who have been picked up, not dropped off, and have tracking tokens
+        const activeTripStudents = await this.prisma.schoolTripStudent.findMany(
+          {
+            where: {
+              tripId: data.tripId,
+              pickupStatus: PickupDropoffStatus.PICKED_UP,
+              trackingToken: { not: null },
+              dropoffStatus: {
+                not: PickupDropoffStatus.DROPPED_OFF,
+              },
+            },
+            select: {
+              trackingToken: true,
+            },
+          },
+        );
+
+        // Broadcast to each student's tracking subscribers
+        for (const tripStudent of activeTripStudents) {
+          if (tripStudent.trackingToken) {
+            this.trackingGateway.broadcastToStudentTracking(
+              tripStudent.trackingToken,
+              locationPayload,
+            );
+          }
+        }
       } catch (error) {
         this.logger.warn(
           `Failed to broadcast location update via WebSocket: ${error}`,

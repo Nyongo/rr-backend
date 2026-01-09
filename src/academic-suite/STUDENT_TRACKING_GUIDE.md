@@ -242,9 +242,164 @@ When an RFID event with type `EXITED_BUS` is logged:
    - No sensitive student information beyond name and admission number
    - Parent contact information is not exposed
 
+## Real-Time Live Tracking via WebSocket
+
+The system supports real-time live tracking via WebSocket connections. This allows parents to see location updates instantly without polling.
+
+### WebSocket Connection
+
+**Namespace:** `/school-trip-tracking`
+
+**Connection URL:**
+
+```
+ws://yourdomain.com/school-trip-tracking
+# or
+wss://yourdomain.com/school-trip-tracking (for HTTPS)
+```
+
+### Subscribing to Student Tracking
+
+Once connected, send a subscribe message with the tracking token:
+
+**Message:**
+
+```javascript
+socket.emit('subscribe-student-tracking', {
+  trackingToken: 'your-tracking-token-here',
+});
+```
+
+**Response (on successful subscription):**
+
+```javascript
+{
+  trackingToken: 'abc123...',
+  student: {
+    id: 'student-uuid',
+    name: 'John Doe',
+    admissionNumber: 'STU001'
+  },
+  tripId: 'trip-uuid',
+  pickupStatus: 'PICKED_UP',
+  dropoffStatus: 'NOT_DROPPED_OFF',
+  currentLocation: {
+    id: 1,
+    latitude: -1.2921,
+    longitude: 36.8219,
+    timestamp: '2024-12-31T07:30:00.000Z',
+    speed: 45.5,
+    heading: 180.0,
+    accuracy: 10.0
+  },
+  message: 'Subscribed to tracking for John Doe'
+}
+```
+
+### Receiving Live Location Updates
+
+Once subscribed, you'll receive real-time location updates via the `student-location-update` event:
+
+**Event:** `student-location-update`
+
+**Payload:**
+
+```javascript
+{
+  trackingToken: 'abc123...',
+  latitude: -1.2940,
+  longitude: 36.8250,
+  timestamp: '2024-12-31T07:35:00.000Z',
+  speed: 42.0,
+  heading: 180.0,
+  accuracy: 10.0
+}
+```
+
+### Unsubscribing
+
+To unsubscribe from updates:
+
+```javascript
+socket.emit('unsubscribe-student-tracking', {
+  trackingToken: 'your-tracking-token-here',
+});
+```
+
+### Complete WebSocket Example
+
+```javascript
+import io from 'socket.io-client';
+
+// Connect to WebSocket server
+const socket = io('https://yourdomain.com/school-trip-tracking', {
+  transports: ['websocket'],
+  reconnection: true,
+});
+
+// Get tracking token from URL or user input
+const trackingToken = 'abc123def456...';
+
+// Handle connection
+socket.on('connect', () => {
+  console.log('Connected to tracking server');
+
+  // Subscribe to student tracking
+  socket.emit('subscribe-student-tracking', { trackingToken });
+});
+
+// Handle subscription confirmation
+socket.on('subscribed-student-tracking', (data) => {
+  console.log('Subscribed:', data.message);
+  console.log('Student:', data.student.name);
+  console.log('Current location:', data.currentLocation);
+
+  // Initialize map with current location
+  if (data.currentLocation) {
+    initializeMap(data.currentLocation);
+  }
+});
+
+// Handle live location updates
+socket.on('student-location-update', (location) => {
+  console.log('New location:', location);
+
+  // Update map marker
+  updateMapMarker({
+    lat: location.latitude,
+    lng: location.longitude,
+    timestamp: location.timestamp,
+    speed: location.speed,
+    heading: location.heading,
+  });
+
+  // Add to route history
+  addRoutePoint({
+    lat: location.latitude,
+    lng: location.longitude,
+  });
+});
+
+// Handle errors
+socket.on('error', (error) => {
+  console.error('Tracking error:', error.message);
+});
+
+// Handle disconnection
+socket.on('disconnect', () => {
+  console.log('Disconnected from tracking server');
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+  socket.emit('unsubscribe-student-tracking', { trackingToken });
+  socket.disconnect();
+});
+```
+
 ## Integration with Frontend
 
-### Example: Displaying Tracking Page
+### Example: Displaying Tracking Page (Polling - Legacy)
 
 ```javascript
 // Fetch tracking data

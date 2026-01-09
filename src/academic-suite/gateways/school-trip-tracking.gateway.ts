@@ -36,8 +36,17 @@ export class SchoolTripTrackingGateway
 
   private readonly logger = new Logger(SchoolTripTrackingGateway.name);
   private readonly connectedClients = new Map<string, Set<string>>(); // tripId -> Set of socketIds
+  private readonly studentTrackingClients = new Map<string, Set<string>>(); // trackingToken -> Set of socketIds
+  private prisma: any; // Will be injected via setter
 
   constructor() {}
+  
+  /**
+   * Set PrismaService (injected via setter to avoid circular dependency)
+   */
+  setPrismaService(prisma: any) {
+    this.prisma = prisma;
+  }
 
   afterInit(server: Server) {
     this.logger.log('School Trip Tracking Gateway initialized');
@@ -56,6 +65,15 @@ export class SchoolTripTrackingGateway
         socketIds.delete(client.id);
         if (socketIds.size === 0) {
           this.connectedClients.delete(tripId);
+        }
+      }
+    });
+    // Remove client from all student tracking rooms
+    this.studentTrackingClients.forEach((socketIds, trackingToken) => {
+      if (socketIds.has(client.id)) {
+        socketIds.delete(client.id);
+        if (socketIds.size === 0) {
+          this.studentTrackingClients.delete(trackingToken);
         }
       }
     });
@@ -153,6 +171,159 @@ export class SchoolTripTrackingGateway
       this.logger.warn(
         `Could not get subscriber count for trip ${payload.tripId}`,
       );
+    }
+  }
+
+  /**
+   * Subscribe to student tracking by tracking token (for parent access)
+   */
+  @SubscribeMessage('subscribe-student-tracking')
+  async handleSubscribeStudentTracking(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { trackingToken: string },
+  ) {
+    try {
+      if (!this.prisma) {
+        this.logger.error('PrismaService not initialized');
+        client.emit('error', { message: 'Server configuration error' });
+        return;
+      }
+
+      const trackingToken = data.trackingToken;
+      if (!trackingToken) {
+        client.emit('error', { message: 'Tracking token is required' });
+        return;
+      }
+
+      // Validate tracking token by fetching trip student
+      const tripStudent = await this.prisma.schoolTripStudent.findUnique({
+        where: { trackingToken },
+        include: {
+          student: {
+            select: {
+              id: true,
+              name: true,
+              admissionNumber: true,
+            },
+          },
+          trip: {
+            select: {
+              id: true,
+              status: true,
+            },
+          },
+        },
+      });
+
+      if (!tripStudent) {
+        client.emit('error', {
+          message: 'Invalid tracking token',
+        });
+        return;
+      }
+
+      const roomName = `student-tracking-${trackingToken}`;
+      client.join(roomName);
+
+      // Track connected clients
+      if (!this.studentTrackingClients.has(trackingToken)) {
+        this.studentTrackingClients.set(trackingToken, new Set());
+      }
+      this.studentTrackingClients.get(trackingToken)?.add(client.id);
+
+      this.logger.log(
+        `Client ${client.id} subscribed to student tracking ${trackingToken} (Student: ${tripStudent.student.name})`,
+      );
+
+      // Send initial student info and current location
+      const currentLocation = await this.prisma.schoolTripLocation.findFirst({
+        where: { tripId: tripStudent.tripId },
+        orderBy: { timestamp: 'desc' },
+      });
+
+      client.emit('subscribed-student-tracking', {
+        trackingToken,
+        student: tripStudent.student,
+        tripId: tripStudent.tripId,
+        pickupStatus: tripStudent.pickupStatus,
+        dropoffStatus: tripStudent.dropoffStatus,
+        currentLocation: currentLocation || null,
+        message: `Subscribed to tracking for ${tripStudent.student.name}`,
+      });
+    } catch (error) {
+      this.logger.error(`Error subscribing to student tracking: ${error}`);
+      client.emit('error', {
+        message: 'Failed to subscribe to student tracking',
+      });
+    }
+  }
+
+  /**
+   * Unsubscribe from student tracking
+   */
+  @SubscribeMessage('unsubscribe-student-tracking')
+  handleUnsubscribeStudentTracking(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { trackingToken: string },
+  ) {
+    try {
+      const trackingToken = data.trackingToken;
+      const roomName = `student-tracking-${trackingToken}`;
+      client.leave(roomName);
+
+      // Remove from tracking
+      const socketIds = this.studentTrackingClients.get(trackingToken);
+      if (socketIds) {
+        socketIds.delete(client.id);
+        if (socketIds.size === 0) {
+          this.studentTrackingClients.delete(trackingToken);
+        }
+      }
+
+      this.logger.log(
+        `Client ${client.id} unsubscribed from student tracking ${trackingToken}`,
+      );
+      client.emit('unsubscribed-student-tracking', {
+        trackingToken,
+        message: `Unsubscribed from student tracking`,
+      });
+    } catch (error) {
+      this.logger.error(`Error unsubscribing from student tracking: ${error}`);
+      client.emit('error', {
+        message: 'Failed to unsubscribe from student tracking',
+      });
+    }
+  }
+
+  /**
+   * Broadcast to a specific student tracking token
+   */
+  broadcastToStudentTracking(
+    trackingToken: string,
+    locationPayload: SchoolTripTrackingPayload,
+  ) {
+    if (!this.server || !this.server.sockets) {
+      return;
+    }
+
+    const roomName = `student-tracking-${trackingToken}`;
+    this.server.to(roomName).emit('student-location-update', {
+      trackingToken,
+      latitude: locationPayload.latitude,
+      longitude: locationPayload.longitude,
+      timestamp: locationPayload.timestamp,
+      speed: locationPayload.speed,
+      heading: locationPayload.heading,
+      accuracy: locationPayload.accuracy,
+    });
+
+    try {
+      const room = this.server.sockets?.adapter?.rooms?.get(roomName);
+      this.logger.debug(
+        `Broadcasted location update for student tracking ${trackingToken} to ${room?.size || 0} clients`,
+      );
+    } catch (error) {
+      // Silent fail
     }
   }
 

@@ -79,6 +79,7 @@ export class AcademicSuiteModule {
     private readonly smsService: SmsService,
     private readonly mailService: MailService,
     private readonly configService: ConfigService,
+    private readonly prismaService: PrismaService,
   ) {
     // Wire up the gateway and services to the service after initialization
     this.schoolTripDbService.setTrackingGateway(
@@ -89,5 +90,7 @@ export class AcademicSuiteModule {
       this.mailService,
       this.configService,
     );
+    // Wire up PrismaService to gateway for student tracking validation
+    this.schoolTripTrackingGateway.setPrismaService(this.prismaService);
   }
 }
