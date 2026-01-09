@@ -1587,7 +1587,7 @@ export class SchoolTripDbService {
 
     const baseUrl =
       this.configService.get<string>('APP_URL') || 'http://localhost:3000';
-    const trackingUrl = `${baseUrl}/academic-suite/track/${trackingToken}`;
+    const trackingUrl = `${baseUrl}/track/${trackingToken}`;
 
     const studentName = student.name;
     const parentName = student.parent.name;
