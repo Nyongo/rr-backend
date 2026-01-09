@@ -407,6 +407,7 @@ model SchoolTripStudent {
   pickupGps            String?
   dropoffGps           String?
   notes                String?
+  trackingToken        String?               @unique // Secure token for parent tracking link
   isActive             Boolean               @default(true)
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt

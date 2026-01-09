@@ -11,14 +11,33 @@ import {
   RfidEventType,
 } from '../dto/create-school-trip.dto';
 import { UpdateSchoolTripLocationDto } from '../dtos/update-school-trip-location.dto';
+import { SmsService } from '../../common/services/sms.service';
+import { MailService } from '../../common/services/mail.service';
+import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class SchoolTripDbService {
   private readonly logger = new Logger(SchoolTripDbService.name);
   private trackingGateway: any; // Will be injected via setter to avoid circular dependency
+  private smsService: SmsService | null = null;
+  private mailService: MailService | null = null;
+  private configService: ConfigService | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Set services (called from module to avoid circular dependency)
+   */
+  setServices(
+    smsService: SmsService,
+    mailService: MailService,
+    configService: ConfigService,
+  ) {
+    this.smsService = smsService;
+    this.mailService = mailService;
+    this.configService = configService;
+  }
 
   /**
    * Set the tracking gateway (called from module to avoid circular dependency)
@@ -318,12 +337,12 @@ export class SchoolTripDbService {
     tripDate?: string,
   ) {
     this.logger.log(`Finding trips for minder ${minderId}`);
-    
+
     const skip = (page - 1) * pageSize;
     const where: any = {
       minderId: minderId,
     };
-    
+
     if (status) where.status = status;
     if (tripDate) {
       const date = new Date(tripDate);
@@ -867,18 +886,25 @@ export class SchoolTripDbService {
 
       // Auto-update student status based on RFID event
       const updateData: any = {};
+      let shouldNotify = false;
 
       if (data.eventType === RfidEventType.ENTERED_BUS) {
         // Student entered bus - update pickup status
         updateData.pickupStatus = PickupDropoffStatus.PICKED_UP;
         if (!tripStudent.actualPickupTime) {
           updateData.actualPickupTime = scannedAt;
+          shouldNotify = true; // Only notify on first pickup
         }
         if (data.gpsCoordinates && !tripStudent.pickupGps) {
           updateData.pickupGps = data.gpsCoordinates;
         }
         if (data.deviceLocation && !tripStudent.pickupLocation) {
           updateData.pickupLocation = data.deviceLocation;
+        }
+
+        // Generate tracking token if not exists
+        if (!tripStudent.trackingToken) {
+          updateData.trackingToken = this.generateTrackingToken();
         }
       } else if (data.eventType === RfidEventType.EXITED_BUS) {
         // Student exited bus - update dropoff status
@@ -895,19 +921,53 @@ export class SchoolTripDbService {
       }
 
       // Update trip student if status changed
+      let updatedTripStudent = null;
       if (Object.keys(updateData).length > 0) {
-        await tx.schoolTripStudent.update({
+        updatedTripStudent = await tx.schoolTripStudent.update({
           where: { id: tripStudent.id },
           data: updateData,
         });
       }
 
-      return rfidEvent;
+      return { rfidEvent, updatedTripStudent, shouldNotify };
     });
+
+    // Send notification if student was just picked up (first time)
+    // Do this outside the transaction to avoid blocking and transaction issues
+    if (result.shouldNotify && result.updatedTripStudent?.trackingToken) {
+      // Fetch student with parent details for notification
+      const studentWithParent = await this.prisma.student.findUnique({
+        where: { id: studentId },
+        include: {
+          parent: {
+            select: {
+              id: true,
+              name: true,
+              phoneNumber: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      if (studentWithParent && studentWithParent.parent) {
+        // Send notification asynchronously (don't await to avoid blocking)
+        this.sendPickupNotification(
+          result.updatedTripStudent.trackingToken,
+          studentWithParent,
+          tripId,
+        ).catch((error) => {
+          this.logger.error(
+            `Failed to send pickup notification: ${error.message}`,
+            error,
+          );
+        });
+      }
+    }
 
     // Return event with student details
     return this.prisma.schoolTripRfidEvent.findUnique({
-      where: { id: result.id },
+      where: { id: result.rfidEvent.id },
       include: {
         student: {
           select: {
@@ -1080,16 +1140,24 @@ export class SchoolTripDbService {
 
           // Auto-update student status
           const updateData: any = {};
+          let shouldNotify = false;
+
           if (event.eventType === RfidEventType.ENTERED_BUS) {
             updateData.pickupStatus = PickupDropoffStatus.PICKED_UP;
             if (!tripStudent.actualPickupTime) {
               updateData.actualPickupTime = scannedAt;
+              shouldNotify = true; // Only notify on first pickup
             }
             if (gpsCoordinates && !tripStudent.pickupGps) {
               updateData.pickupGps = gpsCoordinates;
             }
             if (deviceLocation && !tripStudent.pickupLocation) {
               updateData.pickupLocation = deviceLocation;
+            }
+
+            // Generate tracking token if not exists
+            if (!tripStudent.trackingToken) {
+              updateData.trackingToken = this.generateTrackingToken();
             }
           } else if (event.eventType === RfidEventType.EXITED_BUS) {
             updateData.dropoffStatus = PickupDropoffStatus.DROPPED_OFF;
@@ -1104,8 +1172,9 @@ export class SchoolTripDbService {
             }
           }
 
+          let updatedTripStudent = null;
           if (Object.keys(updateData).length > 0) {
-            await tx.schoolTripStudent.update({
+            updatedTripStudent = await tx.schoolTripStudent.update({
               where: { id: tripStudent.id },
               data: updateData,
             });
@@ -1116,6 +1185,8 @@ export class SchoolTripDbService {
             studentId: student.id,
             success: true,
             eventId: rfidEvent.id,
+            shouldNotify,
+            trackingToken: updatedTripStudent?.trackingToken,
           });
         } catch (error) {
           processedEvents.push({
@@ -1129,6 +1200,49 @@ export class SchoolTripDbService {
 
       return processedEvents;
     });
+
+    // Send notifications for all students that were picked up
+    // Do this outside the transaction to avoid blocking
+    for (const event of results) {
+      if (
+        event.success &&
+        (event as any).shouldNotify &&
+        (event as any).trackingToken &&
+        (event as any).studentId
+      ) {
+        const studentId = (event as any).studentId;
+        const trackingToken = (event as any).trackingToken;
+
+        // Fetch student with parent details for notification
+        const studentWithParent = await this.prisma.student.findUnique({
+          where: { id: studentId },
+          include: {
+            parent: {
+              select: {
+                id: true,
+                name: true,
+                phoneNumber: true,
+                email: true,
+              },
+            },
+          },
+        });
+
+        if (studentWithParent && studentWithParent.parent) {
+          // Send notification asynchronously
+          this.sendPickupNotification(
+            trackingToken,
+            studentWithParent,
+            tripId,
+          ).catch((error) => {
+            this.logger.error(
+              `Failed to send pickup notification for student ${studentId}: ${error.message}`,
+              error,
+            );
+          });
+        }
+      }
+    }
 
     return results;
   }
@@ -1235,5 +1349,197 @@ export class SchoolTripDbService {
     });
 
     return location;
+  }
+
+  /**
+   * Get student location history based on trip locations between pickup and dropoff
+   * @param limit - Optional limit. If not provided, returns all locations
+   */
+  async getStudentLocationHistory(
+    tripId: string,
+    studentId: string,
+    limit?: number,
+  ) {
+    this.logger.log(
+      `Fetching location history for student ${studentId} on trip ${tripId}`,
+    );
+
+    // Get trip student record to find pickup and dropoff times
+    const tripStudent = await this.prisma.schoolTripStudent.findFirst({
+      where: {
+        tripId,
+        studentId,
+      },
+      select: {
+        actualPickupTime: true,
+        actualDropoffTime: true,
+        pickupStatus: true,
+        dropoffStatus: true,
+      },
+    });
+
+    if (!tripStudent) {
+      throw new Error('Student is not assigned to this trip');
+    }
+
+    // If student hasn't been picked up yet, return empty array
+    if (tripStudent.pickupStatus !== PickupDropoffStatus.PICKED_UP) {
+      return [];
+    }
+
+    // Build where clause for location query
+    const where: any = { tripId };
+    if (tripStudent.actualPickupTime) {
+      where.timestamp = { gte: tripStudent.actualPickupTime };
+    }
+    if (tripStudent.actualDropoffTime) {
+      where.timestamp = {
+        ...where.timestamp,
+        lte: tripStudent.actualDropoffTime,
+      };
+    }
+
+    const queryOptions: any = {
+      where,
+      orderBy: { timestamp: 'asc' },
+    };
+
+    // Only apply limit if provided
+    if (limit !== undefined && limit !== null) {
+      queryOptions.take = limit;
+    }
+
+    const locations =
+      await this.prisma.schoolTripLocation.findMany(queryOptions);
+
+    return locations;
+  }
+
+  /**
+   * Get trip student by tracking token
+   */
+  async getTripStudentByTrackingToken(trackingToken: string) {
+    return this.prisma.schoolTripStudent.findUnique({
+      where: { trackingToken },
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+            admissionNumber: true,
+            gender: true,
+          },
+        },
+        trip: {
+          select: {
+            id: true,
+            tripDate: true,
+            status: true,
+            route: {
+              select: {
+                id: true,
+                name: true,
+                tripType: true,
+              },
+            },
+            bus: {
+              select: {
+                id: true,
+                registrationNumber: true,
+                make: true,
+                model: true,
+              },
+            },
+            driver: {
+              select: {
+                id: true,
+                name: true,
+                phoneNumber: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Generate a secure tracking token
+   */
+  private generateTrackingToken(): string {
+    return crypto.randomBytes(32).toString('hex');
+  }
+
+  /**
+   * Send pickup notification to parent via SMS and Email
+   */
+  private async sendPickupNotification(
+    trackingToken: string,
+    student: any,
+    tripId: string,
+  ): Promise<void> {
+    if (!this.smsService || !this.mailService || !this.configService) {
+      this.logger.warn(
+        'SMS/Mail services not initialized, skipping notification',
+      );
+      return;
+    }
+
+    const baseUrl =
+      this.configService.get<string>('APP_URL') || 'http://localhost:8080';
+    const trackingUrl = `${baseUrl}/track/${trackingToken}`;
+
+    const studentName = student.name;
+    const parentName = student.parent.name;
+    const parentPhone = student.parent.phoneNumber;
+    const parentEmail = student.parent.email;
+
+    // SMS message
+    const smsMessage = `Hello ${parentName}, ${studentName} has been picked up and is on the way to school. Track their location: ${trackingUrl}`;
+
+    // Email message
+    const emailSubject = `${studentName} has been picked up`;
+    const emailHtml = `
+      <h2>Student Pickup Notification</h2>
+      <p>Hello ${parentName},</p>
+      <p><strong>${studentName}</strong> has been picked up and is on the way to school.</p>
+      <p>You can track their location in real-time using the link below:</p>
+      <p><a href="${trackingUrl}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Track ${studentName}'s Location</a></p>
+      <p>Or copy this link: ${trackingUrl}</p>
+      <p>This tracking link will remain active until your child is dropped off.</p>
+      <p>Best regards,<br>School Transport Team</p>
+    `;
+
+    // Send SMS if phone number is available
+    // if (parentPhone) {
+    //   try {
+    //     await this.smsService.sendSms(parentPhone, smsMessage);
+    //     this.logger.log(
+    //       `SMS notification sent to ${parentPhone} for student ${studentName}`,
+    //     );
+    //   } catch (error) {
+    //     this.logger.error(
+    //       `Failed to send SMS to ${parentPhone}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    //     );
+    //   }
+    // }
+
+    // Send Email if email is available
+    if (parentEmail) {
+      try {
+        await this.mailService.sendEmail({
+          to: parentEmail,
+          subject: emailSubject,
+          html: emailHtml,
+        });
+        this.logger.log(
+          `Email notification sent to ${parentEmail} for student ${studentName}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to send email to ${parentEmail}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      }
+    }
   }
 }

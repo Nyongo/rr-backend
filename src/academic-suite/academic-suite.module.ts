@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { CommonModule } from '../common/common.module';
 import { CustomerController } from './controllers/customer.controller';
 import { SchoolController } from './controllers/school.controller';
@@ -9,7 +10,7 @@ import { ParentController } from './controllers/parent.controller';
 import { StudentController } from './controllers/student.controller';
 import { AddressController } from './controllers/address.controller';
 import { RouteController } from './controllers/route.controller';
-import { SchoolTripController } from './controllers/school-trip.controller';
+import { SchoolTripController, StudentTrackingController } from './controllers/school-trip.controller';
 import { CustomerDbService } from './services/customer-db.service';
 import { SchoolDbService } from './services/school-db.service';
 import { BusDbService } from './services/bus-db.service';
@@ -22,10 +23,11 @@ import { RouteDbService } from './services/route-db.service';
 import { SchoolTripDbService } from './services/school-trip-db.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../common/services/mail.service';
+import { SmsService } from '../common/services/sms.service';
 import { SchoolTripTrackingGateway } from './gateways/school-trip-tracking.gateway';
 
 @Module({
-  imports: [CommonModule],
+  imports: [CommonModule, ConfigModule],
   providers: [
     PrismaService,
     CustomerDbService,
@@ -39,7 +41,9 @@ import { SchoolTripTrackingGateway } from './gateways/school-trip-tracking.gatew
     RouteDbService,
     SchoolTripDbService,
     MailService,
+    SmsService,
     SchoolTripTrackingGateway,
+    ConfigService,
   ],
   controllers: [
     CustomerController,
@@ -52,6 +56,7 @@ import { SchoolTripTrackingGateway } from './gateways/school-trip-tracking.gatew
     AddressController,
     RouteController,
     SchoolTripController,
+    StudentTrackingController,
   ],
   exports: [
     CustomerDbService,
@@ -71,10 +76,18 @@ export class AcademicSuiteModule {
   constructor(
     private readonly schoolTripDbService: SchoolTripDbService,
     private readonly schoolTripTrackingGateway: SchoolTripTrackingGateway,
+    private readonly smsService: SmsService,
+    private readonly mailService: MailService,
+    private readonly configService: ConfigService,
   ) {
-    // Wire up the gateway to the service after initialization
+    // Wire up the gateway and services to the service after initialization
     this.schoolTripDbService.setTrackingGateway(
       this.schoolTripTrackingGateway,
+    );
+    this.schoolTripDbService.setServices(
+      this.smsService,
+      this.mailService,
+      this.configService,
     );
   }
 }

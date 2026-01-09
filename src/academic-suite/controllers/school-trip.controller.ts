@@ -564,3 +564,117 @@ export class SchoolTripController {
     }
   }
 }
+
+/**
+ * Public tracking controller for parent access (no auth required)
+ */
+@Controller('academic-suite/track')
+export class StudentTrackingController {
+  constructor(private readonly tripDb: SchoolTripDbService) {}
+
+  /**
+   * Get student tracking information by tracking token
+   * This is a public endpoint that parents can access via the tracking link
+   */
+  @Get(':trackingToken')
+  async trackStudent(@Param('trackingToken') trackingToken: string) {
+    try {
+      const tripStudent = await this.tripDb.getTripStudentByTrackingToken(
+        trackingToken,
+      );
+
+      if (!tripStudent) {
+        return {
+          success: false,
+          error: 'Invalid tracking token or trip not found',
+        };
+      }
+
+      // Get current location (most recent)
+      const currentLocation =
+        await this.tripDb.getCurrentTripLocation(tripStudent.tripId);
+
+      // Get location history for this student
+      const locationHistory = await this.tripDb.getStudentLocationHistory(
+        tripStudent.tripId,
+        tripStudent.studentId,
+      );
+
+      return {
+        success: true,
+        data: {
+          student: {
+            id: tripStudent.student.id,
+            name: tripStudent.student.name,
+            admissionNumber: tripStudent.student.admissionNumber,
+          },
+          trip: tripStudent.trip,
+          pickupStatus: tripStudent.pickupStatus,
+          dropoffStatus: tripStudent.dropoffStatus,
+          actualPickupTime: tripStudent.actualPickupTime,
+          actualDropoffTime: tripStudent.actualDropoffTime,
+          pickupLocation: tripStudent.pickupLocation,
+          dropoffLocation: tripStudent.dropoffLocation,
+          currentLocation: currentLocation || null,
+          locationHistory: locationHistory || [],
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to fetch tracking information',
+      };
+    }
+  }
+
+  /**
+   * Get real-time location updates for a student (for WebSocket/polling)
+   */
+  @Get(':trackingToken/location')
+  async getStudentLocation(@Param('trackingToken') trackingToken: string) {
+    try {
+      const tripStudent = await this.tripDb.getTripStudentByTrackingToken(
+        trackingToken,
+      );
+
+      if (!tripStudent) {
+        return {
+          success: false,
+          error: 'Invalid tracking token or trip not found',
+        };
+      }
+
+      // Get current location
+      const currentLocation = await this.tripDb.getCurrentTripLocation(
+        tripStudent.tripId,
+      );
+
+      // Get all location history for this student on this trip
+      const locationHistory = await this.tripDb.getStudentLocationHistory(
+        tripStudent.tripId,
+        tripStudent.studentId,
+      );
+
+      return {
+        success: true,
+        data: {
+          currentLocation: currentLocation || null,
+          locationHistory: locationHistory || [],
+          pickupStatus: tripStudent.pickupStatus,
+          dropoffStatus: tripStudent.dropoffStatus,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to fetch student location',
+      };
+    }
+  }
+}
