@@ -8,6 +8,7 @@ import { ConfigsModule } from './configs/configs.module';
 import { ConfigModule } from '@nestjs/config';
 import { FleetModule } from './fleet/fleet.module';
 import { AcademicSuiteModule } from './academic-suite/academic-suite.module';
+import { TelemetryModule } from './telemetry/telemetry.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
 @Module({
@@ -21,6 +22,7 @@ import { LoggingMiddleware } from './common/middleware/logging.middleware';
     ConfigsModule,
     FleetModule,
     AcademicSuiteModule,
+    TelemetryModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService, LoggingMiddleware],
