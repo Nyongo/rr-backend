@@ -161,6 +161,8 @@ export class RemoveRouteStudentDto {
 export class BulkAddRouteStudentsDto {
   @IsNotEmpty()
   @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BulkStudentDto)
   students: BulkStudentDto[];
 }
 

@@ -203,7 +203,14 @@ export class RouteController {
   }
 
   @Post(':id/students/bulk')
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  )
   async bulkAddStudents(
     @Param('id') id: string,
     @Body() dto: BulkAddRouteStudentsDto,
@@ -267,7 +274,21 @@ export class RouteController {
       }
 
       const result = await this.routeDb.removeStudent(id, studentId);
-      return { success: true, data: result };
+
+      if (result.count === 0) {
+        return {
+          success: false,
+          error: 'Student is not assigned to this route',
+        };
+      }
+
+      return {
+        success: true,
+        data: {
+          message: 'Student removed from route successfully',
+          removedStudent: result.removedStudent,
+        },
+      };
     } catch (error) {
       return {
         success: false,

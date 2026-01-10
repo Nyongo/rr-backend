@@ -578,12 +578,39 @@ export class RouteDbService {
   }
 
   async removeStudent(routeId: string, studentId: string) {
-    return this.prisma.routeStudent.deleteMany({
+    // First check if the student is assigned to this route
+    const existingAssignment = await this.prisma.routeStudent.findFirst({
+      where: {
+        routeId,
+        studentId,
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+            admissionNumber: true,
+          },
+        },
+      },
+    });
+
+    if (!existingAssignment) {
+      throw new Error('Student is not assigned to this route');
+    }
+
+    // Delete the assignment
+    const result = await this.prisma.routeStudent.deleteMany({
       where: {
         routeId,
         studentId,
       },
     });
+
+    return {
+      count: result.count,
+      removedStudent: existingAssignment.student,
+    };
   }
 
   async getRouteStatistics() {
@@ -653,15 +680,62 @@ export class RouteDbService {
     const results = {
       successful: [],
       failed: [],
-      totalRequested: data.students.length,
+      totalRequested: data.students?.length || 0,
     };
+
+    // Validate students array exists
+    if (!data.students || !Array.isArray(data.students) || data.students.length === 0) {
+      results.failed.push({
+        studentId: 'unknown',
+        error: 'Students array is required and must not be empty',
+      });
+      return results;
+    }
+
+    // Debug logging
+    this.logger.debug(`Bulk adding ${data.students.length} students to route ${routeId}`);
+    this.logger.debug(`Students data: ${JSON.stringify(data.students)}`);
+
+    // Filter out invalid student IDs and validate
+    const validStudents = data.students.filter((s) => {
+      // Check if student object exists and has studentId
+      if (!s || typeof s !== 'object') {
+        this.logger.warn(`Invalid student object: ${JSON.stringify(s)}`);
+        results.failed.push({
+          studentId: 'unknown',
+          error: 'Invalid student object',
+        });
+        return false;
+      }
+
+      // Check if studentId exists and is a non-empty string
+      const studentId = s.studentId;
+      if (!studentId || typeof studentId !== 'string' || studentId.trim() === '') {
+        this.logger.warn(`Missing or invalid studentId for student: ${JSON.stringify(s)}`);
+        results.failed.push({
+          studentId: studentId || 'unknown',
+          error: 'Student ID is required and must be a non-empty string',
+        });
+        return false;
+      }
+
+      return true;
+    });
+
+    if (validStudents.length === 0) {
+      this.logger.warn(`No valid students found. Failed: ${results.failed.length}`);
+      return results;
+    }
+
+    // Extract valid student IDs
+    const studentIds = validStudents.map((s) => s.studentId).filter(Boolean);
 
     // Check for existing assignments in batch
     const existingAssignments = await this.prisma.routeStudent.findMany({
       where: {
         routeId,
         studentId: {
-          in: data.students.map((s) => s.studentId),
+          in: studentIds,
         },
       },
       select: {
@@ -674,7 +748,7 @@ export class RouteDbService {
     );
 
     // Prepare data for bulk insert
-    const studentsToAdd = data.students.filter((student) => {
+    const studentsToAdd = validStudents.filter((student) => {
       if (existingStudentIds.has(student.studentId)) {
         results.failed.push({
           studentId: student.studentId,
@@ -700,11 +774,12 @@ export class RouteDbService {
         });
 
         // Fetch the created records with student details
+        const createdStudentIds = studentsToAdd.map((s) => s.studentId).filter(Boolean);
         const createdRecords = await this.prisma.routeStudent.findMany({
           where: {
             routeId,
             studentId: {
-              in: studentsToAdd.map((s) => s.studentId),
+              in: createdStudentIds,
             },
           },
           include: {
